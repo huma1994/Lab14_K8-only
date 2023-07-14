@@ -1,0 +1,1778 @@
+
+———————————————
+K8
+———————————————
+kubernatics Master
+RAM : at lest 2 gb
+CPU at least 2
+———————————————
+kubernatics Worker Nodes(LAB 2PC)
+RAM 1 gb
+CPU 1 gb
+———————————————
+
+Configuration of MASTER= SLAVES = 80% almost same
+So we are configuring on MASTER and later make clone of it for slaves or worker node
+———————————————
+
+Add hostname and IP address entry in /etc/hosts file
+[root@kubemaster ~]# cat /etc/hosts 
+192.168.1.190	kubemaster.lab.com.np
+192.168.1.191	kubenode1.lab.com.np
+192.168.1.192	kubenode2.lab.com.np
+192.168.1.193	kubenode3.lab.com.np
+
+root@kubemaster ~]# free -m
+[root@kubemaster ~]# swapoff -a
+[root@kubemaster ~]# vim /etc/fstab 			{comment swap content}
+
+———————————————
+[docker]
+yum -y install https://download.docker.com/linux/centos/7/x86_64/stable/Packages/containerd.io-1.2.0-1.2.beta.2.el7.x86_64.rpm
+[root@kubemaster ~]# yum -y install device-mapper-persistent-data lvm2 -y
+
+
+[root@kubemaster ~]# cd /etc/yum.repos.d/
+[root@kubemaster yum.repos.d]# wget https://download.docker.com/linux/centos/docker-ce.repo
+[root@kubemaster ~]# yum install docker-ce 
+yum install docker-ce docker-ce-cli containerd.io docker-compose-plugin --allowerasing
+
+[root@kubemaster ~]# rpm -qa docker-ce
+docker-ce-20.10.21-3.el8.x86_64
+[root@kubemaster ~]# usermod -ag docker root
+[root@kubemaster ~]# grep docker /etc/group
+docker:x:985:root
+[root@kubemaster ~]# groups root
+root : root docker
+———————————————
+[kubernatics]
+[root@kubemaster ~]# vim /etc/yum.repos.d/kubernetes.repo
+[root@kubemaster ~]# cat /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+exclude=kubelet kubeadm kubectl
+
+[root@kubemaster ~]# dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+[root@kubemaster ~]# systemctl enable kubelet
+[root@kubemaster ~]# systemctl start kubelet
+
+———————————————
+https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/#check-required-ports
+[root@kubemaster ~]# firewall-cmd --permanent --add-port={6443,2379,2380,10248,10250,10251,10252,10255}/tcp
+success
+[root@kubemaster ~]# firewall-cmd --reload 
+success
+[root@kubemaster ~]# firewall-cmd --list-all
+———————————————
+
+Make sure that ‘br_netfilter’ kernel module is loaded into memory 
+[root@kubemaster ~]# lsmod  | grep br_netfilter
+[root@kubemaster ~]# vi /etc/rc.d/rc.local 
+	[EOF]
+	modeprobe br_netfilter
+[root@kubemaster ~]# chown u+x /etc/rc.d/rc.local 
+
+Enable bridge parameter 
+[root@kubemaster ~]# sysctl -p
+
+[root@kubemaster ~]# vi /etc/sysctl.conf
+net.bridge.bridge-nf-call-iptables=1
+
+[root@kubemaster ~]# sysctl -p
+	net.ipv6.conf.all.disable_ipv6 = 1
+	net.ipv6.conf.default.disable_ipv6 = 1
+	net.ipv6.conf.ens160.disable_ipv6 = 1
+	net.bridge.bridge-nf-call-iptables = 1
+———————————————
+Create a demon file
+[root@kubemaster ~]# 
+[root@kubemaster ~]# cat /etc/docker/daemon.json 
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m"
+  },
+  "storage-driver": "overlay2",
+  "storage-opts": [
+    "overlay2.override_kernel_check=true"	
+  ]
+}
+
+
+
+———————————————
+[root@kubemaster ~]# systemctl restart docker
+[root@kubemaster ~]# systemctl status docker
+———————————————
+[root@kubemaster ~]# mkdir -p /etc/systemd/system/docker.service.d
+[root@kubemaster ~]# 
+[root@kubemaster ~]# systemctl daemon-reload 
+[root@kubemaster ~]# 
+[root@kubemaster ~]# systemctl restart docker
+[root@kubemaster ~]# systemctl status docker
+———————————————
+[root@kubemaster ~]# ls -l /etc/containerd/config.toml 
+[root@kubemaster ~]# rm -rf   /etc/containerd/config.toml 			[server and node too]
+[root@kubemaster ~]# systemctl restart containerd.service 
+[root@kubemaster ~]# dnf install -y iproute-tc
+———————————————
+[root@kubemaster ~]# kubeadm init
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Alternatively, if you are the root user, you can run:
+
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+
+kubeadm join 192.168.1.190:6443 --token cwyc5t.wmwi2vrol7amoxbv \
+	--discovery-token-ca-cert-hash sha256:f88d0c744c267e5cda5b162b5b5abe2a25026ef9a13fe95e10dc5723bd22eae2
+———————————————
+[root@kubemaster ~]# kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+———————————————
+[worker 1 2]
+[root@kubenode1 ~]# vim /etc/sysctl.conf 
+[root@kubenode1 ~]# sysctl -p
+net.ipv4.ip_forward = 1
+———————————————
+[master]
+[root@kubemaster ~]# kubectl get nodes
+
+
+
+
+
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+
+
+
+[MASTER]
+
+[root@master ~]# vim /etc/hosts
+192.168.10.171  master
+192.168.10.172  workernode1
+192.168.10.173  workernode2
+192.168.10.174  workernode3
+192.168.10.175  workernode4
+
+
+[MASTER]
+
+[root@master ~]# getenforce
+Enforcing
+[root@master ~]# cat /etc/sysconfig/selinux | grep SELINUX=
+# SELINUX= can take one of these three values:
+SELINUX=enforcing
+[root@master ~]# sed -i --follow-symlinks 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/sysconfig/selinux
+[root@master ~]# setenforce 0
+[root@master ~]# cat /etc/sysconfig/selinux | grep SELINUX=
+# SELINUX= can take one of these three values:
+SELINUX=disabled
+
+
+
+
+[MASTER]
+
+[root@master ~]# systemctl stop firewalld.service
+[root@master ~]# systemctl disable firewalld
+.
+[root@master ~]# systemctl status firewalld
+
+
+
+[MASTER]
+
+[root@master ~]# cat /proc/meminfo | grep MemTotal | awk '{print ($2 / 1024) / 1024 ,"GiB"}'
+3.54928 GiB
+[root@master ~]# cat /proc/cpuinfo | grep processor
+processor       : 0
+processor       : 1
+processor       : 2
+processor       : 3
+processor       : 4
+processor       : 5
+[root@master ~]#
+
+
+
+
+
+[MASTER]
+
+
+[root@master ~]# free -m
+              total        used        free      shared  buff/cache   available
+Mem:           3634         225        3191           8         217        3178
+Swap:          4095           0        4095
+[root@master ~]# sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+[root@master ~]# swapoff -a
+[root@master ~]# free -m
+              total        used        free      shared  buff/cache   available
+Mem:           3634         222        3195           8         216        3182
+Swap:             0           0           0
+
+
+
+
+
+
+[MASTER]
+
+
+[root@master ~]# lsmod | grep br_netfilter
+[root@master ~]# modprobe br_netfilter
+[root@master ~]# lsmod | grep br_netfilter
+br_netfilter           24576  0
+bridge                294912  1 br_netfilter
+[root@master ~]#
+
+
+[MASTER]
+
+[root@master ~]# grep net.bridge.bridge-nf-call-iptables /proc/sys/net/bridge/bridge-nf-call-iptables
+[root@master ~]# echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
+[root@master ~]# sysctl -a | grep net.bridge.bridge-nf-call-iptables
+net.bridge.bridge-nf-call-iptables = 1
+[root@master ~]#
+
+
+[MASTER]
+
+[root@master ~]# yum install -y yum-utils
+
+[root@master ~]# yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+[root@master ~]# yum -y  install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin --allowerasing
+
+[root@master ~]# systemctl start docker
+[root@master ~]# systemctl enable docker
+
+[root@master ~]# systemctl status docker
+
+systemctl start docker ; systemctl enable docker ; systemctl status docker
+
+
+
+
+
+[MASTER]
+
+[root@master ~]# cat /etc/containerd/config.toml | grep SystemdCgroup
+            SystemdCgroup = false
+
+[root@master ~]# containerd config default | sudo tee /etc/containerd/config.toml
+
+[root@master ~]# sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+
+[root@master ~]# cat /etc/containerd/config.toml | grep SystemdCgroup
+            SystemdCgroup = true
+[root@master ~]#
+
+
+
+[MASTER]
+
+### Kubernetes installation steps #####
+cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-\$basearch
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+exclude=kubelet kubeadm kubectl
+EOF
+
+
+[root@master ~]# yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+
+systemctl enable kubelet; systemctl start kubelet
+
+
+[WORKER  ]
+
+MAKE 2 Worker NODES.... CLONE THE SYSTEM
+
+
+
+
+[MASTER]
+
+[root@master ~]# swapoff -a
+[root@master ~]# kubeadm init
+
+[root@master ~]# mkdir -p $HOME/.kube
+[root@master ~]# sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+[root@master ~]# sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+
+
+[root@master ~]# curl https://raw.githubusercontent.com/projectcalico/calico/v3.26.0/manifests/calico.yaml -O
+[root@master ~]# kubectl apply -f calico.yaml
+
+[BROWESER]
+https://docs.tigera.io/calico/latest/getting-started/kubernetes/self-managed-onprem/onpremises#install-calico-with-kubernetes-api-datastore-more-than-50-nodes
+
+
+
+
+[root@master ~]# cat token							//cop this tocken to connct worker-nodes
+dm join 192.168.10.171:6443 --token v2nkcg.5snl0eczgdkrljf0 \
+        --discovery-token-ca-cert-hash sha256:8df7f8d2d8f0acd792ef62d39a24d2e99816a360f0ed7b14482a23d59a94e718
+
+
+
+[MASTER]
+-------------------https://blog.csdn.net/qq_39261894/article/details/109013696
+
+
+[root@master ~]# kubectl get nodes
+NAME             STATUS     ROLES           AGE     VERSION
+master.lab.com   NotReady   control-plane   4m11s   v1.27.2
+
+
+
+
+
+[WORKER 1 2 ]
+-------------------
+
+[root@node1 ~]# kubeadm join 192.168.10.180:6443 --token 0i6qwe.3ggh0k1bb2vajdov \			
+>         --discovery-token-ca-cert-hash sha256:d3994d221c1b6b333c14a8804dd5b276377c3ba3a123bb2e737cbc06fa98b692			// form node1
+
+
+and
+
+
+[root@node2 ~]# kubeadm join 192.168.10.180:6443 --token 0i6qwe.3ggh0k1bb2vajdov \
+>         --discovery-token-ca-cert-hash sha256:d3994d221c1b6b333c14a8804dd5b276377c3ba3a123bb2e737cbc06fa98b692			// from node2
+
+
+
+
+[root@node1 ~]# kubeadm join 192.168.10.180:6443 --token 0i6qwe.3ggh0k1bb2vajdov \
+>         --discovery-token-ca-cert-hash sha256:d3994d221c1b6b333c14a8804dd5b276377c3ba3a123bb2e737cbc06fa98b692			// node 1 with full logs
+[preflight] Running pre-flight checks
+        [WARNING FileExisting-tc]: tc not found in system path
+[preflight] Reading configuration from the cluster...
+[preflight] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -o yaml'
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[kubelet-start] Starting the kubelet
+[kubelet-start] Waiting for the kubelet to perform the TLS Bootstrap...
+
+This node has joined the cluster:
+* Certificate signing request was sent to apiserver and a response was received.
+* The Kubelet was informed of the new secure connection details.
+
+Run 'kubectl get nodes' on the control-plane to see this node join the cluster.
+
+[root@node1 ~]#
+
+
+
+
+[root@node2 ~]# kubeadm join 192.168.10.180:6443 --token 0i6qwe.3ggh0k1bb2vajdov \								// node 2 with full logs
+>         --discovery-token-ca-cert-hash sha256:d3994d221c1b6b333c14a8804dd5b276377c3ba3a123bb2e737cbc06fa98b692
+[preflight] Running pre-flight checks
+        [WARNING FileExisting-tc]: tc not found in system path
+[preflight] Reading configuration from the cluster...
+[preflight] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -o yaml'
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[kubelet-start] Starting the kubelet
+[kubelet-start] Waiting for the kubelet to perform the TLS Bootstrap...
+
+This node has joined the cluster:
+* Certificate signing request was sent to apiserver and a response was received.
+* The Kubelet was informed of the new secure connection details.
+
+Run 'kubectl get nodes' on the control-plane to see this node join the cluster.
+
+[root@node2 ~]#
+
+
+
+
+
+
+
+
+[MASTER]					
+-------------------	
+[root@master ~]# kubectl get nodes				// view the worker node is added by token
+NAME     STATUS   ROLES           AGE     VERSION
+master   Ready    control-plane   76m     v1.27.2
+node1    Ready    <none>          50m     v1.27.2
+node2    Ready    <none>          7m20s   v1.27.2
+
+
+
+[root@master ~]# kubectl get pods
+No resources found in default namespace.
+
+
+
+
+
+[root@master ~]# kubectl get pods -A
+NAMESPACE         NAME                                       READY   STATUS    RESTARTS   AGE
+kube-system       calico-kube-controllers-786b679988-spbbq   1/1     Running   0          35m
+kube-system       calico-node-985vr                          1/1     Running   0          17m
+kube-system       calico-node-glc4q                          1/1     Running   0          35m
+kube-system       calico-node-n7gp5                          1/1     Running   0          35m
+kube-system       coredns-5d78c9869d-cdmkp                   1/1     Running   0          86m
+kube-system       coredns-5d78c9869d-nn6ld                   1/1     Running   0          86m
+kube-system       etcd-master                                1/1     Running   0          86m
+kube-system       kube-apiserver-master                      1/1     Running   0          86m
+kube-system       kube-controller-manager-master             1/1     Running   0          86m
+kube-system       kube-proxy-57ksk                           1/1     Running   0          17m
+kube-system       kube-proxy-8dh4n                           1/1     Running   0          61m
+kube-system       kube-proxy-xdg9h                           1/1     Running   0          86m
+kube-system       kube-scheduler-master                      1/1     Running   0          86m
+tigera-operator   tigera-operator-58f95869d6-26hz9           1/1     Running   0          82m
+
+
+
+
+
+
+
+
+[BASH-COMPLETION]					//configure bashcompletin
+-----------------------
+[root@masternode1 ~]#  yum -y install bash-completion
+[root@masternode1 ~]# kubectl completion bash > /etc/bash_completion.d/kubectl
+[root@masternode1 ~]# echo 'source <(kubectl completion bash)' >>~/.bashrc
+[root@master ~]# . .bashrc
+[root@masternode1 ~]# source  /usr/share/bash-completion/bash_completion
+
+
+
+
+[MASTER]
+-------------------						//LIST the NODES and PODS
+
+[root@master ~]# kubectl get nodes
+NAME     STATUS   ROLES           AGE    VERSION
+master   Ready    control-plane   102m   v1.27.2
+node1    Ready    <none>          77m    v1.27.2
+node2    Ready    <none>          34m    v1.27.2
+
+
+
+[root@master ~]# kubectl get nodes -o wide
+NAME     STATUS   ROLES           AGE    VERSION   INTERNAL-IP      EXTERNAL-IP   OS-IMAGE          KERNEL-VERSION          CONTAINER-RUNTIME
+master   Ready    control-plane   102m   v1.27.2   192.168.10.180   <none>        CentOS Stream 8   4.18.0-492.el8.x86_64   containerd://1.6.21
+node1    Ready    <none>          77m    v1.27.2   192.168.10.181   <none>        CentOS Stream 8   4.18.0-492.el8.x86_64   containerd://1.6.21
+node2    Ready    <none>          33m    v1.27.2   192.168.10.182   <none>        CentOS Stream 8   4.18.0-492.el8.x86_64   containerd://1.6.21
+
+
+[root@master ~]# kubectl get pods
+[root@master ~]# kubectl get pods -o wide
+
+
+
+
+
+[MASTER]					Creating / Launching POD = kubectl, API, webbased(dashboard)
+-------------------
+
+kubectl run <pod name> --image=<image_name>
+
+[root@master ~]# kubectl run javaapp1 --image=docker.io/huma11994/javakrepo_cct			//its norml pod, no replica contorller , later study
+pod/javaapp1 created		
+
+
+[root@master ~]# kubectl get pods
+NAME       READY   STATUS              RESTARTS   AGE
+javaapp1   0/1     ContainerCreating   0          30s
+
+
+[root@master ~]# kubectl get pods -w				// live output watch
+root@master ~]# kubectl describe pods javaapp1
+
+
+[root@master ~]# kubectl run web1 --image=httpd
+
+
+[root@master ~]# kubectl get pods -w
+NAME       READY   STATUS              RESTARTS   AGE
+javaapp1   1/1     Running             0          7m14s
+web1       0/1     ContainerCreating   0          19s
+
+
+
+NAME       READY   STATUS    RESTARTS   AGE
+javaapp1   1/1     Running   0          8m28s
+web1       1/1     Running   0          93s
+
+
+
+
+
+[root@k8master ~]# kubectl get pods -w -o wide
+
+
+
+
+
+
+
+[root@master ~]# kubectl get pods -o wide
+NAME       READY   STATUS    RESTARTS   AGE    IP             NODE    NOMINATED NODE   READINESS GATES
+javaapp1   1/1     Running   0          9m3s   172.16.104.1   node2   <none>           <none>			//java app running in node2
+web1       1/1     Running   0          2m8s   172.16.104.2   node2   <none>           <none>			// http in also node2
+
+
+
+
+checking the load balancing
+-----------------------------
+[root@master ~]# kubectl run javaapp2 --image=docker.io/huma11994/javakrepo_cct
+pod/javaapp2 created
+[root@master ~]# kubectl run javaapp3 --image=docker.io/huma11994/javakrepo_cct
+pod/javaapp3 created
+[root@master ~]# kubectl run javaapp4 --image=docker.io/huma11994/javakrepo_cct
+pod/javaapp4 created
+
+
+
+[root@master ~]# kubectl get pods -o wide
+NAME       READY   STATUS              RESTARTS   AGE    IP             NODE    NOMINATED NODE   READINESS GATES
+javaapp1   1/1     Running             0          18m    172.16.104.1   node2   <none>           <none>			// running as balancer in node2
+javaapp2   1/1     Running             0          102s   172.16.104.3   node2   <none>           <none>			// running as balancer in node2
+javaapp3   1/1     Running             0          94s    172.16.104.4   node2   <none>           <none>			// running as balancer in node2
+javaapp4   0/1     ContainerCreating   0          88s    <none>         node1   <none>           <none>			// running as balancer in node1
+web1       1/1     Running             0          12m    172.16.104.2   node2   <none>           <none>			// running as balancer in node1
+
+
+
+
+
+[root@master ~]# kubectl get pods -o wide
+NAME       READY   STATUS    RESTARTS   AGE     IP               NODE    NOMINATED NODE   READINESS GATES
+javaapp1   1/1     Running   0          22m     172.16.104.1     node2   <none>           <none>
+javaapp2   1/1     Running   0          5m46s   172.16.104.3     node2   <none>           <none>
+javaapp3   1/1     Running   0          5m38s   172.16.104.4     node2   <none>           <none>
+javaapp4   1/1     Running   0          5m32s   172.16.166.132   node1   <none>           <none>
+web1       1/1     Running   0          16m     172.16.104.2     node2   <none>           <none>
+[root@master ~]#
+
+
+
+
+
+
+[root@master ~]# #kubectl describe pod javaapp1			// see FULL - details of pod
+[root@master ~]# #kubectl describe pod javaapp2
+[root@master ~]# #kubectl describe pod javaapp3
+
+
+
+
+
+******************************************
+Verify shelf helaing feature of PODS
+******************************************
+
+
+[MASTER]
+------------------- Verify shelf helaing feature of PODS
+
+
+
+[WORKER  ]					
+-------------------
+
+
+
+
+
+
+
+
+
+
+*****************************************
+Seting LABEL ON  PODS
+******************************************
+
+[MASTER]
+-------------------
+[root@master ~]# kubectl get pods --show-labels
+NAME       READY   STATUS    RESTARTS   AGE   LABELS
+javaapp1   1/1     Running   0          65m   run=javaapp1
+javaapp2   1/1     Running   0          48m   run=javaapp2
+javaapp3   1/1     Running   0          48m   run=javaapp3
+javaapp4   1/1     Running   0          48m   run=javaapp4
+web1       1/1     Running   0          58m   run=web1
+
+
+[root@master ~]# kubectl label pod javaapp1 app=web_java1		// setting label name
+pod/javaapp1 labeled
+
+
+[root@master ~]# kubectl get pods javaapp1 --show-labels
+NAME       READY   STATUS    RESTARTS   AGE   LABELS
+javaapp1   1/1     Running   0          67m   app=web_java1,run=javaapp1
+
+
+
+
+
+[MASTER]
+-------------------
+POD CREATION TYPE--
+Method I - 'kubectl run-
+Method II - 'kubectl apply'  == > mostly used
+--------------------
+
+
+[root@master ~]# . .vimrc
+autocmd FIleType yaml setlocal ai ts=2 sw=2 et
+
+
+
+
+[root@master ~]# vim firstpod.yml				// defining via .yml file
+apiVersion: v1
+kind: Pod
+metadata:
+  name: firstpod
+  labels:
+    type: app1
+spec:
+  containers:
+  - name: firstcontainer
+    image: docker.io/huma11994/javakrepo_cct
+
+
+
+[root@master ~]# kubectl get pod -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP               NODE    NOMINATED NODE   READINESS GATES
+javaapp1   1/1     Running   0          80m   172.16.104.1     node2   <none>           <none>
+javaapp2   1/1     Running   0          62m   172.16.104.3     node2   <none>           <none>
+javaapp3   1/1     Running   0          62m   172.16.104.4     node2   <none>           <none>
+javaapp4   1/1     Running   0          62m   172.16.166.132   node1   <none>           <none>
+web1       1/1     Running   0          73m   172.16.104.2     node2   <none>           <none>
+
+
+[root@master ~]# kubectl apply -f firstpod.yml --dry-run=client				// check syntax of .yml file
+pod/firstpod created (dry run)
+
+
+[root@master ~]# kubectl apply -f firstpod.yml					// applying .yml file and creating pod and container
+pod/firstpod created
+
+
+[root@master ~]# kubectl get pod -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP               NODE    NOMINATED NODE   READINESS GATES
+firstpod   1/1     Running   0          34s   172.16.104.5     node2   <none>           <none>
+javaapp1   1/1     Running   0          82m   172.16.104.1     node2   <none>           <none>
+javaapp2   1/1     Running   0          64m   172.16.104.3     node2   <none>           <none>
+javaapp3   1/1     Running   0          64m   172.16.104.4     node2   <none>           <none>
+javaapp4   1/1     Running   0          64m   172.16.166.132   node1   <none>           <none>
+web1       1/1     Running   0          75m   172.16.104.2     node2   <none>           <none>
+[root@master ~]#
+
+
+[root@master ~]# kubectl get pod firstpod -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP             NODE    NOMINATED NODE   READINESS GATES
+firstpod   1/1     Running   0          63s   172.16.104.5   node2   <none>           <none>
+
+
+
+
+
+
+[root@master ~]# kubectl explain pod | less					// help for .yml file extensions
+[root@master ~]# kubectl explain pod --recursive | less
+
+
+
+[root@master ~]# kubectl run javaapp4 --image=docker.io/huma11994/javakrepo_cct --dry-run=client -o yaml > secondpod.yml		// for dummy generating of yml file from k'kuectl run'
+[root@master ~]# vim secondpod.yml
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    run: javaapp4
+  name: javaapp4
+spec:
+  containers:
+  - image: docker.io/huma11994/javakrepo_cct
+    name: javaapp4
+    resources: {}
+  dnsPolicy: ClusterFirst
+  restartPolicy: Always
+status: {}
+
+
+
+
+[EDIT]
+-------
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: javaapp44_pod
+  name: app
+spec:
+  containers:
+  - image: docker.io/huma11994/javakrepo_cct
+    name: javaapp44
+
+
+
+[root@master ~]# kubectl apply -f secondpod.yml
+pod/app created
+
+[root@master ~]# kubectl get pod -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP               NODE    NOMINATED NODE   READINESS GATES
+app        1/1     Running   0          16s   172.16.166.133   node1   <none>           <none>
+firstpod   1/1     Running   0          10m   172.16.104.5     node2   <none>           <none>
+javaapp1   1/1     Running   0          92m   172.16.104.1     node2   <none>           <none>
+javaapp2   1/1     Running   0          75m   172.16.104.3     node2   <none>           <none>
+javaapp3   1/1     Running   0          74m   172.16.104.4     node2   <none>           <none>
+javaapp4   1/1     Running   0          74m   172.16.166.132   node1   <none>           <none>
+web1       1/1     Running   0          85m   172.16.104.2     node2   <none>           <none>
+
+
+
+[root@master ~]# kubectl get pod app -o wide
+NAME   READY   STATUS    RESTARTS   AGE   IP               NODE    NOMINATED NODE   READINESS GATES
+app    1/1     Running   0          40s   172.16.166.133   node1   <none>           <none>
+
+
+
+
+
+
+
+
+*****************************************
+DELEATING a  PODS
+******************************************
+kubectl delete pod <podname>
+
+
+
+[MASTER]
+-------------------
+[root@master ~]# kubectl get pod -o wide
+NAME       READY   STATUS    RESTARTS   AGE     IP               NODE    NOMINATED NODE   READINESS GATES
+app        1/1     Running   0          2m54s   172.16.166.133   node1   <none>           <none>
+firstpod   1/1     Running   0          13m     172.16.104.5     node2   <none>           <none>
+javaapp1   1/1     Running   0          94m     172.16.104.1     node2   <none>           <none>
+javaapp2   1/1     Running   0          77m     172.16.104.3     node2   <none>           <none>
+javaapp3   1/1     Running   0          77m     172.16.104.4     node2   <none>           <none>
+javaapp4   1/1     Running   0          77m     172.16.166.132   node1   <none>           <none>
+web1       1/1     Running   0          87m     172.16.104.2     node2   <none>           <none>
+
+
+
+[root@master ~]# kubectl delete pod javaapp1 javaapp2 javaapp3 javaapp4
+pod "javaapp1" deleted
+pod "javaapp2" deleted
+pod "javaapp3" deleted
+pod "javaapp4" deleted
+
+
+[root@master ~]# kubectl delete pod firstpod
+pod "firstpod" deleted
+
+
+[root@master ~]# kubectl get pod -o wide
+NAME   READY   STATUS    RESTARTS   AGE    IP               NODE    NOMINATED NODE   READINESS GATES
+app    1/1     Running   0          7m9s   172.16.166.133   node1   <none>           <none>
+web1   1/1     Running   0          92m    172.16.104.2     node2   <none>           <none>
+
+
+[root@master ~]# kubectl delete pod --all			// to delete all the pods 
+
+[root@master ~]# kubectl delete pod --all
+pod "app" deleted
+pod "web1" deleted
+
+
+[root@master ~]# kubectl get pods
+No resources found in default namespace.
+
+
+
+
+
+
+*****************************************
+CREATING a NODE  PODS [END USER]
+******************************************
+
+
+[MASTER]
+-------------------
+
+
+[root@master ~]# pwd
+/root
+
+[root@master ~]# vim firstpod.yml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: firstpod
+  labels:
+    type: app1
+spec:
+  containers:
+  - name: firstcontainer
+    image: docker.io/huma11994/javakrepo_cct
+
+[root@master ~]# kubectl apply -f firstpod.yml
+pod/firstpod created
+
+
+
+[root@master ~]# kubectl get  pods -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP             NODE    NOMINATED NODE   READINESS GATES
+firstpod   1/1     Running   0          33s   172.16.104.6   node2   <none>           <none>
+
+
+
+
+
+[MASTER]
+------------------- TO enter into POD locally
+
+[root@master ~]# kubectl exec firstpod -ti -- bash
+
+root@firstpod:/usr/local/tomcat# pwd
+/usr/local/tomcat
+
+
+
+[MASTER]
+------------------- RUN the content of POD Externally
+
+[root@master ~]# kubectl exec firstpod -- pwd
+/usr/local/tomcat
+[root@master ~]# kubectl exec firstpod -- hostname
+firstpod
+[root@master ~]# kubectl exec firstpod -- ls /usr/local/tomcat/webapps
+testjavaappCICD
+testjavaappCICD.war
+[root@master ~]#
+
+
+
+
+[MASTER]
+------------------- CREATING a NODE PORT
+NODE POT IS required to access the app from outside client
+
+[root@master ~]# kubectl get pods --show-labels
+NAME       READY   STATUS    RESTARTS   AGE     LABELS
+firstpod   1/1     Running   0          6m59s   type=app1
+
+
+
+[root@master ~]# kubectl expose pod firstpod --type=NodePort --port=9000 --target-port=8080 --name firstsvc
+service/firstsvc exposed								
+
+
+[root@master ~]# kubectl get pods -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP             NODE    NOMINATED NODE   READINESS GATES
+firstpod   1/1     Running   0          13m   172.16.104.6   node2   <none>           <none>
+
+
+
+[root@master ~]# kubectl get svc
+[root@master ~]# kubectl get service
+NAME         TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+firstsvc     NodePort    10.101.245.120   <none>        9000:30824/TCP   49s
+kubernetes   ClusterIP   10.96.0.1        <none>        443/TCP          3h43m
+
+
+
++++++++++++++++++++++++
+BROWSER: node2_IP:30824/appNAME				
+
+http://192.168.10.182:30824/testjavaappCICD/			// can run from node2
+http://192.168.10.181:30824/testjavaappCICD/			// can not run from node1===> need REPLICA CONTROLLER
++++++++++++++++++++++++
+
+
+
+
+
+
+*****************************************
+CREATING a NODE[END USER]  PODS  from .yml file
+******************************************
+
+[MASTER]
+-------------------
+[root@master ~]# kubectl get service
+
+[root@master ~]# kubectl delete service firstsvc
+service "firstsvc" deleted
+
+[root@master ~]# kubectl get service
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   4h4m
+
+
+[root@master ~]# kubectl explain service | less					// list examples from .yml file
+
+[root@master ~]# kubectl explain service --recursive | less
+
+
+
+[root@master ~]# kubectl expose pod firstpod --type=NodePort --port=9000 --target-port=8080 --name firstsvc --dry-run=client -o yaml > firstsvc.yml
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    type: app1
+  name: firstsvc
+spec:
+  ports:
+  - port: 9000
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    type: app1
+  type: NodePort
+status:
+  loadBalancer: {}
+
+
+[EDIT]
+
+[root@master ~]# vi firstsvc.yml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    type: svc
+  name: firstsvc
+spec:
+  ports:
+  - nodePort: 32000
+    port: 9000
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    type: app1
+  type: NodePort
+status:
+  loadBalancer: {}
+
+
+
+
+[root@master ~]# kubectl apply -f firstsvc.yml
+service/firstsvc created
+
+
+[root@master ~]# kubectl get  svc
+NAME         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
+firstsvc     NodePort    10.108.207.51   <none>        9000:32000/TCP   15s
+kubernetes   ClusterIP   10.96.0.1       <none>        443/TCP          4h12m
+
+
+
+
+
+[root@master ~]# kubectl get  pod --show-labels
+NAME       READY   STATUS    RESTARTS   AGE   LABELS
+firstpod   1/1     Running   0          43m   type=app1
+
+
+
+
+
+[root@master ~]# kubectl get  svc -o wide
+NAME         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE     SELECTOR
+firstsvc     NodePort    10.105.38.235   <none>        9000:32000/TCP   14s     type=app1
+kubernetes   ClusterIP   10.96.0.1       <none>        443/TCP          4h15m   <none>
+
+
+
+
+
+[root@master ~]# kubectl get  pod -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP             NODE    NOMINATED NODE   READINESS GATES
+firstpod   1/1     Running   0          48m   172.16.104.6   node2   <none>           <none>
+
+
+
+
++++++++++++++++++++++++
+BROWSER: node2_IP:32000/appNAME				
+
+http://192.168.10.182:32000/testjavaappCICD/			// can run from node2
+http://192.168.10.181:32000/testjavaappCICD/			// can not run from node1===> need REPLICA CONTROLLER
++++++++++++++++++++++++
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+*****************************************
+CREATING a REPLICATION CONTROLLER (rc) ............... at NODE[END USER]  PODS  from .yml file
+******************************************
+
+
+[MASTER]
+-------------------
+
+[root@master ~]# kubectl delete pod firstpod
+pod "firstpod" deleted
+
+[root@master ~]# kubectl get  pod -o wide
+
+
+[root@master ~]# kubectl explain rc |  less
+[root@master ~]# kubectl explain rc --recursive | less
+
+
+
+
+[MASTER]
+-------------------Replica controller
+
+[root@master ~]# kubectl get rc
+[root@master ~]# kubectl get pods
+[root@master ~]# kubectl get svc
+
+
+
+
+
+[root@master ~]# vim firstrc.yml
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: firstrc
+spec:
+  replicas: 2
+  template:
+    metadata:
+      name: firstpod
+      labels:
+        type: app1
+    spec:
+      containers:
+      - name: first-container
+        image: docker.io/huma11994/javakrepo_cct
+
+
+
+
+[root@master ~]# kubectl apply -f firstrc.yml --dry-run=client
+replicationcontroller/firstrc created (dry run)
+
+[root@master ~]# kubectl apply -f rc.yml
+replicationcontroller/firstrc created
+
+
+
+
+[root@master ~]# kubectl get rc
+NAME      DESIRED   CURRENT   READY   AGE
+firstrc   2         2         2       16s
+
+
+
+[root@master ~]# kubectl get rc -o wide
+NAME      DESIRED   CURRENT   READY   AGE   CONTAINERS        IMAGES                              SELECTOR
+firstrc   2         2         2       45s   first-container   docker.io/huma11994/javakrepo_cct   type=app1
+
+
+
+
+
+[root@master ~]# kubectl get pods
+NAME            READY   STATUS    RESTARTS   AGE
+firstrc-v8zs5   1/1     Running   0          4m26s
+firstrc-wdsds   1/1     Running   0          4m26s
+
+
+ 
+[root@master ~]# kubectl get pods -o wide
+NAME            READY   STATUS    RESTARTS   AGE     IP               NODE    NOMINATED NODE   READINESS GATES
+firstrc-v8zs5   1/1     Running   0          4m31s   172.16.166.134   node1   <none>           <none>				// replica pode is node 1 and 2 respectively
+firstrc-wdsds   1/1     Running   0          4m31s   172.16.104.7     node2   <none>           <none>
+
+
+
+c
+
+
+
+
+
+On adding 4 pods on Rep Controllor
+=======================
+
+
+[root@master ~]# vim firstrc.yml
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: firstrc
+spec:
+  replicas: 4
+  template:
+    metadata:
+      name: firstpod
+      labels:
+        type: app1
+    spec:
+      containers:
+      - name: first-container
+        image: docker.io/huma11994/javakrepo_cct
+
+
+
+
+[root@master ~]# kubectl get pod -w				//watch live outpot
+NAME            READY   STATUS    RESTARTS   AGE
+firstrc-2vc79   1/1     Running   0          9s
+firstrc-v8zs5   1/1     Running   0          15m
+firstrc-wdsds   1/1     Running   0          15m
+firstrc-zbjcw   1/1     Running   0          9s
+
+
+
+[root@master ~]# kubectl get pod -o wide
+NAME            READY   STATUS    RESTARTS   AGE   IP               NODE    NOMINATED NODE   READINESS GATES
+firstrc-2vc79   1/1     Running   0          31s   172.16.104.8     node2   <none>           <none>
+firstrc-v8zs5   1/1     Running   0          15m   172.16.166.134   node1   <none>           <none>
+firstrc-wdsds   1/1     Running   0          15m   172.16.104.7     node2   <none>           <none>
+firstrc-zbjcw   1/1     Running   0          31s   172.16.166.135   node1   <none>           <none>
+
+
+
+
+[root@master ~]# kubectl get rc -o wide
+NAME      DESIRED   CURRENT   READY   AGE   CONTAINERS        IMAGES                              SELECTOR
+firstrc   4         4         4       16m   first-container   docker.io/huma11994/javakrepo_cct   type=app1
+
+
+
+
+
+
+
+
+*****************************************
+DEPLOYMENT  ... app rollout
+******************************************
+it is like a replication controller, but in the deployement we can deploy new version of an application.
+
+CICD applied ==>  applied new version as  REPLICATION CONTROLLER (rc) ............... at NODE[END USER]  PODS  from .yml file
+
+
+
+
+[MASTER]
+-------------------
+
+[root@master ~]# kubectl get rc
+NAME      DESIRED   CURRENT   READY   AGE
+firstrc   4         4         4       23m
+
+[root@master ~]# kubectl delete rc firstrc
+replicationcontroller "firstrc" deleted
+
+
+[root@master ~]# kubectl get rc
+No resources found in default namespace.
+
+
+
+
+[MASTER]
+-------------------
+[root@master ~]# kubectl get deployment
+No resources found in default namespace.
+
+[root@master ~]# kubectl get deploy
+No resources found in default namespace.
+
+
+
+
+[root@master ~]# kubectl get svc firstsvc  -o wide
+NAME       TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE     SELECTOR
+firstsvc   NodePort   10.105.38.235   <none>        9000:32000/TCP   3h24m   type=app1
+
+
+
+
+[root@master ~]# pwd
+/root
+
+[root@master ~]# cp firstrc.yml firstdeploy.yml
+
+[root@master ~]# ls
+anaconda-ks.cfg  firstdeploy.yml  firstrc.yml   secondpod.yml
+calico.yaml      firstpod.yml     firstsvc.yml
+
+
+
+[MASTER]
+-------------------
+[root@master ~]# vim firstdeploy.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: firstdep
+  labels:
+    type: firstdep
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      type: app1
+  template:
+    metadata:
+      name: firstpod
+      labels:
+        type: app1
+    spec:
+      containers:
+      - name: first-container
+        image: docker.io/huma11994/javakrepo_cct
+
+
+
+
+[root@master ~]# kubectl get deploy
+NAME       READY   UP-TO-DATE   AVAILABLE   AGE
+
+
+
+[root@master ~]# kubectl get deploy -o wide
+NAME       READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS        IMAGES                              SELECTOR
+firstdep   2/2     2            2           38s   first-container   docker.io/huma11994/javakrepo_cct   type=app1
+
+[root@master ~]# kubectl get deploy -w
+
+
+
+[root@master ~]# kubectl get pods
+NAME                        READY   STATUS    RESTARTS   AGE
+firstdep-77945bdd5b-tk9wj   1/1     Running   0          42s
+firstdep-77945bdd5b-w2v89   1/1     Running   0          42s
+
+
+
+[root@master ~]# kubectl get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP               NODE    NOMINATED NODE   READINESS GATES
+firstdep-77945bdd5b-tk9wj   1/1     Running   0          48s   172.16.166.136   node1   <none>           <none>
+firstdep-77945bdd5b-w2v89   1/1     Running   0          48s   172.16.104.9     node2   <none>           <none>
+
+
+
+
+to view form browser
+--------------------
+
+[root@master ~]kubectl get pods --show-labels
+NAME                        READY   STATUS    RESTARTS   AGE     LABELS
+firstdep-77945bdd5b-tk9wj   1/1     Running   0          3m34s   pod-template-hash=77945bdd5b,type=app1
+firstdep-77945bdd5b-w2v89   1/1     Running   0          3m34s   pod-template-hash=77945bdd5b,type=app1
+
+[root@master ~]# kubectl get svc -o wide
+NAME         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE     SELECTOR
+firstsvc     NodePort    10.105.38.235   <none>        9000:32000/TCP   3h36m   type=app1
+kubernetes   ClusterIP   10.96.0.1       <none>        443/TCP          7h51m   <none>
+
+
+
+
+
++++++++++++++++++++++++
+BROWSER: node2_IP:32000/appNAME				
+
+http://192.168.10.182:32000/testjavaappCICD/			// can run from node2
+http://192.168.10.181:32000/testjavaappCICD/			// can not run from node1===> need REPLICA CONTROLLER
++++++++++++++++++++++++
+
+
+
+
+
+
+Deploying a NEW ver of APP  in DEPLOYEMENT
+--------------------------------------------------
+[root@master ~]# kubectl rollout restart deployment.v1.apps/firstdep
+
+
+[root@master ~]# kubectl rollout restart deployment.v1.apps/firstdep
+deployment.apps/firstdep restarted
+
+
+[root@master ~]# kubectl get deploy -w
+NAME       READY   UP-TO-DATE   AVAILABLE   AGE
+firstdep   2/2     2            2           9m23s
+
+
+
+
+
+[MASTER]
+------------------- ON addition of REPLICA=8 ........ form .yml file
+
+
+[root@master ~]# kubectl rollout restart deployment.v1.apps/firstdep
+
+
+[root@master ~]# kubectl get deploy -w
+
+
+[root@master ~]# kubectl get pod -w
+NAME                        READY   STATUS              RESTARTS   AGE
+firstdep-5f68d76fff-5vvth   0/1     ContainerCreating   0          5s
+firstdep-5f68d76fff-74dq7   0/1     ContainerCreating   0          5s
+firstdep-5f68d76fff-7c8lc   1/1     Running             0          5s
+firstdep-5f68d76fff-ctkd6   0/1     ContainerCreating   0          5s
+firstdep-5f68d76fff-dcpzq   0/1     ContainerCreating   0          5s
+firstdep-5f68d76fff-jnstt   1/1     Running             0          109s
+firstdep-5f68d76fff-vpm6w   1/1     Running             0          112s
+firstdep-5f68d76fff-vzwps   0/1     ContainerCreating   0          5s
+firstdep-5f68d76fff-ctkd6   1/1     Running             0          6s
+firstdep-5f68d76fff-vzwps   1/1     Running             0          8s
+firstdep-5f68d76fff-5vvth   1/1     Running             0          9s
+firstdep-5f68d76fff-dcpzq   1/1     Running             0          11s
+firstdep-5f68d76fff-74dq7   1/1     Running             0          13s
+
+
+
+
+[root@master ~]# kubectl get pod -w
+NAME                        READY   STATUS    RESTARTS   AGE
+firstdep-5f68d76fff-5vvth   1/1     Running   0          35s
+firstdep-5f68d76fff-74dq7   1/1     Running   0          35s
+firstdep-5f68d76fff-7c8lc   1/1     Running   0          35s
+firstdep-5f68d76fff-ctkd6   1/1     Running   0          35s
+firstdep-5f68d76fff-dcpzq   1/1     Running   0          35s
+firstdep-5f68d76fff-jnstt   1/1     Running   0          2m19s
+firstdep-5f68d76fff-vpm6w   1/1     Running   0          2m22s
+firstdep-5f68d76fff-vzwps   1/1     Running   0          35s
+
+
+
+
+
+[root@master ~]# kubectl get pod -o wide
+NAME                        READY   STATUS    RESTARTS   AGE     IP               NODE    NOMINATED NODE   READINESS GATES
+firstdep-5f68d76fff-5vvth   1/1     Running   0          56s     172.16.166.139   node1   <none>           <none>
+firstdep-5f68d76fff-74dq7   1/1     Running   0          56s     172.16.166.140   node1   <none>           <none>
+firstdep-5f68d76fff-7c8lc   1/1     Running   0          56s     172.16.104.12    node2   <none>           <none>
+firstdep-5f68d76fff-ctkd6   1/1     Running   0          56s     172.16.166.138   node1   <none>           <none>
+firstdep-5f68d76fff-dcpzq   1/1     Running   0          56s     172.16.104.13    node2   <none>           <none>
+firstdep-5f68d76fff-jnstt   1/1     Running   0          2m40s   172.16.166.137   node1   <none>           <none>
+firstdep-5f68d76fff-vpm6w   1/1     Running   0          2m43s   172.16.104.10    node2   <none>           <none>
+firstdep-5f68d76fff-vzwps   1/1     Running   0          56s     172.16.104.11    node2   <none>           <none>
+
+
+
+
+
+
+
+
++++++++++++++++++++++++
+BROWSER: node2_IP:32000/appNAME				
+
+http://192.168.10.182:32000/testjavaappCICD/			// can run 8 pods inside 2 workers as from node2 and node1
+http://192.168.10.181:32000/testjavaappCICD/			
++++++++++++++++++++++++
+
+
+
+
+
+[WORKER  ]					
+-------------------
+
+
+
+
+
+
+[WORKER  ]
+-------------------
+
+
+
+
+
+[MASTER]
+-------------------
+
+[MASTER]
+
+
+
+
+
+
+
+
+
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+
+
+
+
+==========
+CICD  - Pipeline
+==========
+
+Jenkins_Master	10.154 	//imp
+Ansible_NODE	10.170	//imp
+
+K8-master	10.180
+K8-node1	10.181
+K8-node2	10.182
+---------------------------
+
+
+
+==========
+CICD  - Pipeline : Dloying an application (Java web) on kubernetics custer (pods) using CICD
+==========
+
+
+
+
+
+
+[MASTER--k8]
+------------------- create a yml file for service and deployement creation
+
+
+
+
+delete all pods and deployements( and srvice too)   before lunch jenkins CICD
+.......
+
+[root@master ~]# kubectl delete deploy firstdep
+[root@master ~]# kubectl delete  service firstsvc
+
+
+[root@master ~]# kubectl get all
+[root@master ~]# kubectl get pods -A
+
+
+
+
+
+[ANSIBE]
+-------------------devops user
+send the PUBLIC key to root user of K8-master
+
+[devops@node_ansible ~]$ ssh-copy-id root@192.168.10.180
+
+
+
+[ANSIBE]
+------------------ make a .yml file for k8-master
+
+
+[devops@node_ansible ~]$ cd playbooks/
+[devops@node_ansible playbooks]$ vim inventory
+[tomcat]
+192.168.10.153
+
+[apache]
+192.168.10.152
+
+[container_host]
+192.168.10.156
+
+[k8-master]
+192.168.10.180
+
+
+
+
+
+[devops@node_ansible playbooks]$ vim k8createsvc.yml
+- name: playbook to create service on k8-master
+  hosts: k8-master
+  user: root
+  tasks:
+  - name: create service
+    command: kubectl apply -f /root/firstsvc.yml
+
+[devops@node_ansible playbooks]$ ansible-playbook --syntax-check k8createsvc.yml
+
+
+
+
+
+
+
+[devops@node_ansible playbooks]$ vim k8createdep.yml
+- name: playbook to create deployement of pods in k8-master using deployement
+  hosts: k8-master
+  user: root
+  tasks:
+  - name: create deployemeny
+    command: kubectl  apply  -f /root/firstdeploy.yml
+  - name: rollout new version of javaapp
+    command: kubectl rollout restart deployment.v1.apps/firstdep
+
+
+[devops@node_ansible playbooks]$ ansible-playbook --syntax-check k8createdep.yml
+
+
+
+
+
+
+
+
+
+
+[DEVELOPER]
+------------------
+Make some change in MACHINE or code via git hub
+
+
+
+<html>
+<body>
+<h2> v11 ..  Hello and GOOD Evening ,  SANJEEV THAPA ... 
+ THIS system is been Deploying java app using CICD 2023...  </h2>
+
+  <h2> running via ANSIBLE  to Kubernatics Worker Node - 2 ... wrt JENKINS automtions </h2>
+</body>
+</html>
+
+
+
+
+
+
+
+
+[JENKINS] -- PIPELINE
+----------------------- Create CI Job
+
+Dashboard => Deploy_Kubernatics_Ansible_JAVA_CI_2023 => Configuration
+
+[NEW JOB]
+
+Description - deploy Java  web app on kubernetics cluster
+
+Source Code Management
+Git
+Repository URL - git@github.com:huma1994/jaProjectCICD_CCT.git
+Credentials - jenkins (jenkins and git cred)
+
+Build Triggers
+Poll SCM
+Schedule - * * * * *
+
+Build Steps
+Invoke top-level Maven targets
+Maven Version - maven compiler via jenkins
+Goals - package
+
+
+Post-build Actions
+Send build artifacts over SSH
+SSH Server
+Name - AnsibleServer
+Transfer Set
+Source files - target/*.war
+Remove prefix - target
+Remote directory - //home//devops//playbooks
+Exec command - cd /home/devops/playbooks
+		bash build_img.sh
+
+
+
+
+
+
+
+
+
+
+
+
+
+[JENKINS] -- PIPELINE
+----------------------- Create CD Job
+
+[NEW JOB]
+Dashboard ==>  Deploy_Kubernatics_Ansible_JAVA_CD_2023-2 ==> Configuration
+
+Description - deploy app on kubernatics cluster using play books
+
+Build Steps
+SSH Server
+Name - AnsibleServer
+
+Exec command - cd /home/devops/playbooks
+		ansible-playbook  k8createdep.yml
+		ansible-playbook  k8createsvc.yml
+
+
+
+
+[JENKINS] -- PIPELINE
+----------------------- again go to CI Job
+
+
+Dashboard => Deploy_Kubernatics_Ansible_JAVA_CI_2023 => Configuration
+
+
+Add post build actions ==> Build other projects
+Projects to build - Deploy_Kubernatics_Ansible_JAVA_CD_2023-2, 
+
+Trigger only if build is stable {check}
+
+
+
+[NOW BUILD TO START]
+
+
+
+
+
+
+
+
+
+
+
+
+[output]
+----------
+
+[ANSIBE]
+------------------
+[devops@node_ansible playbooks]$ ls -l testjavaappCICD.war
+-rw-rw-r--. 1 devops devops 1876 Jun  4 19:20 testjavaappCICD.war
+
+
+
+
+[MASTER--k8]
+-------------------
+
+
+
+
+[JENKINS] -- PIPELINE
+-----------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[ANSIBE]
+------------------
+[devops@node_ansible playbooks]$ ls -l testjavaappCICD.war
+-rw-rw-r--. 1 devops devops 1876 Jun  4 19:20 testjavaappCICD.war
+
+
+
+[MASTER--k8]
+-------------------
+[MASTER--k8]
+-------------------
+
+[MASTER--k8]
+-------------------
+[MASTER--k8]
+-------------------
+[MASTER--k8]
+-------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
++++++++++++++++++++++++
+BROWSER: node2_IP:32000/appNAME				
+
+http://192.168.10.182:32000/testjavaappCICD/			// can run from node2
+http://192.168.10.181:32000/testjavaappCICD/			// can not run from node1===> need REPLICA CONTROLLER
++++++++++++++++++++++++
+
+
+
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+
